@@ -668,11 +668,6 @@ static ssize_t backing_dev_store(struct device *dev,
 	zram->backing_dev = backing_dev;
 	zram->bitmap = bitmap;
 	zram->nr_pages = nr_pages;
-#ifdef CONFIG_ZRAM_LRU_WRITEBACK
-	err = init_lru_writeback(zram);
-	if (err)
-		goto init_lru_writeback_fail;
-#endif
 	/*
 	 * With writeback feature, zram does asynchronous IO so it's no longer
 	 * synchronous device so let's remove synchronous io flag. Othewise,
@@ -685,6 +680,11 @@ static ssize_t backing_dev_store(struct device *dev,
 	 */
 	zram->disk->queue->backing_dev_info->capabilities &=
 			~BDI_CAP_SYNCHRONOUS_IO;
+#ifdef CONFIG_ZRAM_LRU_WRITEBACK
+	err = init_lru_writeback(zram);
+	if (err)
+		goto init_lru_writeback_fail;
+#endif
 	up_write(&zram->init_lock);
 
 	pr_info("setup backing device %s\n", file_name);
