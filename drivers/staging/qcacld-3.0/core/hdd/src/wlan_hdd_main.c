@@ -16838,7 +16838,7 @@ int wlan_hdd_sec_get_psm()
  *
  * Return: 0 for success, errno on failure
  */
-static int hdd_module_init(void)
+static int __init hdd_module_init(void)
 {
 	if (hdd_driver_load())
 		return -EINVAL;
