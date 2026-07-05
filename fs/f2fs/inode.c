@@ -366,9 +366,6 @@ static int do_read_inode(struct inode *inode)
 	inode->i_ctime.tv_nsec = le32_to_cpu(ri->i_ctime_nsec);
 	inode->i_mtime.tv_nsec = le32_to_cpu(ri->i_mtime_nsec);
 	inode->i_generation = le32_to_cpu(ri->i_generation);
-	if (IS_I_VERSION(inode))
-		inode->i_version++;
-
 	if (S_ISDIR(inode->i_mode))
 		fi->i_current_depth = le32_to_cpu(ri->i_current_depth);
 	else if (S_ISREG(inode->i_mode))
@@ -458,8 +455,7 @@ static int do_read_inode(struct inode *inode)
 					(fi->i_flags & F2FS_COMPR_FL)) {
 		if (F2FS_FITS_IN_INODE(ri, fi->i_extra_isize,
 					i_log_cluster_size)) {
-			atomic_set(&fi->i_compr_blocks,
-					le64_to_cpu(ri->i_compr_blocks));
+			fi->i_compr_blocks = le64_to_cpu(ri->i_compr_blocks);
 			fi->i_compress_algorithm = ri->i_compress_algorithm;
 			fi->i_log_cluster_size = ri->i_log_cluster_size;
 			fi->i_cluster_size = 1 << fi->i_log_cluster_size;
@@ -474,7 +470,7 @@ static int do_read_inode(struct inode *inode)
 	stat_inc_inline_inode(inode);
 	stat_inc_inline_dir(inode);
 	stat_inc_compr_inode(inode);
-	stat_add_compr_blocks(inode, atomic_read(&fi->i_compr_blocks));
+	stat_add_compr_blocks(inode, F2FS_I(inode)->i_compr_blocks);
 
 	return 0;
 }
@@ -633,8 +629,7 @@ void f2fs_update_inode(struct inode *inode, struct page *node_page)
 			F2FS_FITS_IN_INODE(ri, F2FS_I(inode)->i_extra_isize,
 							i_log_cluster_size)) {
 			ri->i_compr_blocks =
-				cpu_to_le64(atomic_read(
-					&F2FS_I(inode)->i_compr_blocks));
+				cpu_to_le64(F2FS_I(inode)->i_compr_blocks);
 			ri->i_compress_algorithm =
 				F2FS_I(inode)->i_compress_algorithm;
 			ri->i_log_cluster_size =
@@ -779,14 +774,16 @@ no_delete:
 	stat_dec_inline_dir(inode);
 	stat_dec_inline_inode(inode);
 	stat_dec_compr_inode(inode);
-	stat_sub_compr_blocks(inode,
-			atomic_read(&F2FS_I(inode)->i_compr_blocks));
+	stat_sub_compr_blocks(inode, F2FS_I(inode)->i_compr_blocks);
 
-	if (likely(!is_set_ckpt_flags(sbi, CP_ERROR_FLAG) &&
-				!is_sbi_flag_set(sbi, SBI_CP_DISABLED)))
-		f2fs_bug_on(sbi, is_inode_flag_set(inode, FI_DIRTY_INODE));
-	else
+	if (unlikely(is_inode_flag_set(inode, FI_DIRTY_INODE))) {
 		f2fs_inode_synced(inode);
+		f2fs_warn(sbi, "inconsistent dirty inode:%lu entry found during eviction\n",
+			 inode->i_ino);
+		if (!is_set_ckpt_flags(sbi, CP_ERROR_FLAG) &&
+		    !is_sbi_flag_set(sbi, SBI_CP_DISABLED))
+			f2fs_bug_on(sbi, 1);
+	}
 
 	/* for the case f2fs_new_inode() was failed, .i_ino is zero, skip it */
 	if (inode->i_ino)
@@ -863,7 +860,6 @@ void f2fs_handle_failed_inode(struct inode *inode)
 	} else {
 		set_inode_flag(inode, FI_FREE_NID);
 	}
-
 out:
 	f2fs_unlock_op(sbi);
 
